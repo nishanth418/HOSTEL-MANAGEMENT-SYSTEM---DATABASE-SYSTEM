@@ -2,34 +2,47 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../database');
 
-// Helper to check if string contains multiple SQL statements
-function hasMultipleStatements(sql) {
+// Helper to split SQL script into individual statements safely honoring quotes
+function splitStatements(sql) {
+  const statements = [];
   let inSingleQuote = false;
   let inDoubleQuote = false;
-  const s = sql.trim().replace(/;+\s*$/, ''); // strip trailing semicolon(s)
+  let current = '';
 
-  for (let i = 0; i < s.length; i++) {
-    const char = s[i];
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
     if (char === "'" && !inDoubleQuote) {
-      if (inSingleQuote && s[i + 1] === "'") {
-        i++; // skip escaped quote ''
+      if (inSingleQuote && sql[i + 1] === "'") {
+        current += "''";
+        i++;
       } else {
         inSingleQuote = !inSingleQuote;
+        current += char;
       }
     } else if (char === '"' && !inSingleQuote) {
-      if (inDoubleQuote && s[i + 1] === '"') {
+      if (inDoubleQuote && sql[i + 1] === '"') {
+        current += '""';
         i++;
       } else {
         inDoubleQuote = !inDoubleQuote;
+        current += char;
       }
     } else if (char === ';' && !inSingleQuote && !inDoubleQuote) {
-      return true; // found unquoted semicolon separator
+      if (current.trim()) {
+        statements.push(current.trim());
+      }
+      current = '';
+    } else {
+      current += char;
     }
   }
-  return false;
+  if (current.trim()) {
+    statements.push(current.trim());
+  }
+  return statements;
 }
 
-// POST /api/query - Execute normal SQL command (SELECT, INSERT, UPDATE, DELETE, DDL)
+// POST /api/query - Execute ANY SQL operation (DQL, DML, DDL, Joins, Aggregates, Multi-statement scripts)
 router.post('/', (req, res) => {
   try {
     const { sql } = req.body;
@@ -41,68 +54,126 @@ router.post('/', (req, res) => {
       });
     }
 
-    const trimmed = sql.trim();
-
-    // Enforce exactly ONE statement per execution
-    if (hasMultipleStatements(trimmed)) {
+    const statements = splitStatements(sql.trim());
+    if (statements.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Multiple SQL statements are not permitted. Please execute one statement at a time.',
-        message: 'Multiple SQL statements are not permitted. Please execute one statement at a time.'
+        error: 'No valid SQL statements found.',
+        message: 'No valid SQL statements found.'
       });
     }
 
-    // Clean trailing semicolons for preparation
-    const cleanSql = trimmed.replace(/;+\s*$/, '');
-
-    // Determine statement type from first token
-    const firstWordMatch = cleanSql.match(/^\s*([A-Za-z]+)/);
-    const commandType = firstWordMatch ? firstWordMatch[1].toUpperCase() : 'SQL';
-
     const startTime = process.hrtime();
-    const stmt = db.prepare(cleanSql);
 
-    // If query returns data (e.g., SELECT, WITH ... SELECT, PRAGMA)
-    if (stmt.reader) {
-      const rows = stmt.all();
+    // Case 1: Single statement
+    if (statements.length === 1) {
+      const cleanSql = statements[0];
+      const firstWordMatch = cleanSql.match(/^\s*([A-Za-z]+)/);
+      const commandType = firstWordMatch ? firstWordMatch[1].toUpperCase() : 'SQL';
+
+      const stmt = db.prepare(cleanSql);
+
+      if (stmt.reader) {
+        const rows = stmt.all();
+        const diff = process.hrtime(startTime);
+        const executionTimeMs = (diff[0] * 1000 + diff[1] / 1e6).toFixed(2);
+
+        let columns = [];
+        if (rows.length > 0) {
+          columns = Object.keys(rows[0]);
+        } else if (typeof stmt.columns === 'function') {
+          columns = stmt.columns().map(c => c.name);
+        }
+
+        return res.json({
+          success: true,
+          type: commandType === 'WITH' ? 'WITH' : 'SELECT',
+          query: cleanSql,
+          count: rows.length,
+          columns,
+          rows,
+          data: rows,
+          executionTimeMs
+        });
+      }
+
+      const info = stmt.run();
       const diff = process.hrtime(startTime);
       const executionTimeMs = (diff[0] * 1000 + diff[1] / 1e6).toFixed(2);
 
-      let columns = [];
-      if (rows.length > 0) {
-        columns = Object.keys(rows[0]);
-      } else if (typeof stmt.columns === 'function') {
-        columns = stmt.columns().map(c => c.name);
-      }
+      const isDdl = ['CREATE', 'ALTER', 'DROP'].includes(commandType);
 
       return res.json({
         success: true,
-        type: commandType === 'WITH' ? 'WITH' : 'SELECT',
+        type: commandType,
         query: cleanSql,
-        count: rows.length,
-        columns,
-        rows,
-        data: rows,
+        changes: info.changes,
+        lastInsertRowid: info.lastInsertRowid,
+        message: isDdl
+          ? `${commandType} command executed successfully`
+          : `Command executed successfully\nAffected rows: ${info.changes}`,
         executionTimeMs
       });
     }
 
-    // Otherwise it's a mutating command (INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, etc.)
-    const info = stmt.run();
+    // Case 2: Multi-statement batch execution in a single atomic transaction
+    let lastResult = null;
+    let totalChanges = 0;
+    let finalQueryRows = null;
+    let finalColumns = [];
+
+    const runBatch = db.transaction(() => {
+      for (let i = 0; i < statements.length; i++) {
+        const s = statements[i];
+        const isLast = i === statements.length - 1;
+        const stmt = db.prepare(s);
+
+        if (stmt.reader) {
+          if (isLast) {
+            finalQueryRows = stmt.all();
+            if (finalQueryRows.length > 0) {
+              finalColumns = Object.keys(finalQueryRows[0]);
+            } else if (typeof stmt.columns === 'function') {
+              finalColumns = stmt.columns().map(c => c.name);
+            }
+          } else {
+            stmt.all();
+          }
+        } else {
+          const info = stmt.run();
+          totalChanges += (info.changes || 0);
+          lastResult = info;
+        }
+      }
+    });
+
+    runBatch();
+
     const diff = process.hrtime(startTime);
     const executionTimeMs = (diff[0] * 1000 + diff[1] / 1e6).toFixed(2);
 
-    const isDdl = ['CREATE', 'ALTER', 'DROP'].includes(commandType);
+    if (finalQueryRows !== null) {
+      return res.json({
+        success: true,
+        type: 'BATCH_QUERY',
+        count: finalQueryRows.length,
+        columns: finalColumns,
+        rows: finalQueryRows,
+        data: finalQueryRows,
+        statementsCount: statements.length,
+        changes: totalChanges,
+        message: `Executed ${statements.length} statements successfully. Final query returned ${finalQueryRows.length} row(s).`,
+        executionTimeMs
+      });
+    }
 
     return res.json({
       success: true,
-      type: commandType,
-      query: cleanSql,
-      changes: info.changes,
-      lastInsertRowid: info.lastInsertRowid,
-      message: isDdl
-        ? 'Command executed successfully'
-        : `Command executed successfully\nAffected rows: ${info.changes}`,
+      type: 'BATCH_SCRIPT',
+      statementsCount: statements.length,
+      changes: totalChanges,
+      lastInsertRowid: lastResult ? lastResult.lastInsertRowid : undefined,
+      message: `Executed ${statements.length} SQL statements successfully.\nTotal affected rows: ${totalChanges}`,
       executionTimeMs
     });
   } catch (error) {

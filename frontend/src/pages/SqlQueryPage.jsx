@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal, Play, AlertCircle, CheckCircle2, Database, Clock, RefreshCw } from 'lucide-react';
+import { Terminal, Play, AlertCircle, CheckCircle2, Database, Clock, RefreshCw, Download, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 
 const EXACT_18_TABLES = [
@@ -23,30 +23,93 @@ const EXACT_18_TABLES = [
   'PAYMENT_DETAIL'
 ];
 
+const SQL_CATEGORIES = ['All', 'DQL (Queries)', 'DML (Modify)', 'DDL (Schema)', 'Joins & Aggregates', 'Multi-Statement'];
+
 const QUICK_COMMANDS = [
+  // DQL
   {
-    label: 'SELECT * FROM STUDENT;',
+    category: 'DQL (Queries)',
+    label: 'SELECT * FROM STUDENT',
     sql: 'SELECT * FROM STUDENT;'
   },
   {
-    label: 'SELECT * FROM WARDEN;',
-    sql: 'SELECT * FROM WARDEN;'
+    category: 'DQL (Queries)',
+    label: 'WHERE & ORDER BY',
+    sql: "SELECT StudentID, FirstName, LastName, Gender, PlanType\nFROM STUDENT\nWHERE Gender = 'Female'\nORDER BY FirstName ASC;"
   },
   {
-    label: 'SELECT * FROM ROOM;',
-    sql: 'SELECT * FROM ROOM;'
+    category: 'DQL (Queries)',
+    label: 'Nested Subquery',
+    sql: "SELECT StudentID, Amount, PaymentMode, Status\nFROM PAYMENT\nWHERE Amount > (SELECT AVG(Amount) FROM PAYMENT);"
   },
   {
-    label: 'INSERT example',
-    sql: "INSERT INTO ROOM_TYPE (TypeID, TypeName, AC_Type, Capacity)\nVALUES ('RT4', 'Deluxe Single', 'AC', 1);"
+    category: 'DQL (Queries)',
+    label: 'WITH (CTE) Query',
+    sql: "WITH HighRentRooms AS (\n  SELECT RoomNo, FloorNo, Type, RoomRent\n  FROM ROOM\n  WHERE RoomRent >= 5000\n)\nSELECT * FROM HighRentRooms\nORDER BY RoomRent DESC;"
+  },
+  // Joins & Aggregates
+  {
+    category: 'Joins & Aggregates',
+    label: '3-Table INNER JOIN',
+    sql: "SELECT s.StudentID, s.FirstName || ' ' || s.LastName AS FullName,\n       r.RoomNo, r.RoomRent, h.HostelName\nFROM STUDENT s\nJOIN ROOM r ON s.RoomNo = r.RoomNo\nJOIN HOSTEL h ON s.HostelID = h.HostelID;"
   },
   {
-    label: 'UPDATE example',
+    category: 'Joins & Aggregates',
+    label: 'LEFT JOIN & Aggregation',
+    sql: "SELECT h.HostelName, COUNT(s.StudentID) AS TotalResidents\nFROM HOSTEL h\nLEFT JOIN STUDENT s ON h.HostelID = s.HostelID\nGROUP BY h.HostelID, h.HostelName;"
+  },
+  {
+    category: 'Joins & Aggregates',
+    label: 'GROUP BY & HAVING',
+    sql: "SELECT PlanType, COUNT(*) AS StudentCount\nFROM STUDENT\nGROUP BY PlanType\nHAVING COUNT(*) >= 1;"
+  },
+  {
+    category: 'Joins & Aggregates',
+    label: 'Payment Aggregates',
+    sql: "SELECT Status, COUNT(*) AS TotalCount, SUM(Amount) AS TotalCollected, ROUND(AVG(Amount), 2) AS AvgAmount\nFROM PAYMENT\nGROUP BY Status;"
+  },
+  // DML
+  {
+    category: 'DML (Modify)',
+    label: 'INSERT Record',
+    sql: "INSERT INTO ROOM_TYPE (TypeID, TypeName, AC_Type, Capacity)\nVALUES ('RT99', 'Deluxe Single', 'AC', 1);"
+  },
+  {
+    category: 'DML (Modify)',
+    label: 'UPDATE Record',
     sql: "UPDATE ROOM\nSET RoomRent = 5200\nWHERE RoomNo = 'R101';"
   },
   {
-    label: 'DELETE example',
-    sql: "DELETE FROM ROOM_TYPE\nWHERE TypeID = 'RT4';"
+    category: 'DML (Modify)',
+    label: 'DELETE Record',
+    sql: "DELETE FROM ROOM_TYPE\nWHERE TypeID = 'RT99';"
+  },
+  // DDL
+  {
+    category: 'DDL (Schema)',
+    label: 'CREATE TABLE',
+    sql: "CREATE TABLE IF NOT EXISTS CAMPUS_EVENT (\n  EventID TEXT PRIMARY KEY,\n  EventName TEXT NOT NULL,\n  EventDate TEXT NOT NULL,\n  Venue TEXT NOT NULL\n);"
+  },
+  {
+    category: 'DDL (Schema)',
+    label: 'ALTER TABLE',
+    sql: "ALTER TABLE CAMPUS_EVENT ADD COLUMN Organizer TEXT DEFAULT 'Admin';"
+  },
+  {
+    category: 'DDL (Schema)',
+    label: 'CREATE VIEW',
+    sql: "CREATE VIEW IF NOT EXISTS VIEW_STUDENT_HOSTEL AS\nSELECT s.StudentID, s.FirstName || ' ' || s.LastName AS FullName, h.HostelName, s.RoomNo\nFROM STUDENT s\nJOIN HOSTEL h ON s.HostelID = h.HostelID;"
+  },
+  {
+    category: 'DDL (Schema)',
+    label: 'DROP TABLE',
+    sql: "DROP TABLE IF EXISTS CAMPUS_EVENT;"
+  },
+  // Multi-Statement
+  {
+    category: 'Multi-Statement',
+    label: 'Batch Script',
+    sql: "CREATE TABLE IF NOT EXISTS DEMO_TEMP (ID INT PRIMARY KEY, Val TEXT);\nINSERT INTO DEMO_TEMP VALUES (1, 'SQL Studio Live');\nSELECT * FROM DEMO_TEMP;\nDROP TABLE DEMO_TEMP;"
   }
 ];
 
@@ -57,6 +120,7 @@ export default function SqlQueryPage({ showToast }) {
   const [errorInfo, setErrorInfo] = useState(null);
   const [schemaMap, setSchemaMap] = useState({});
   const [selectedTable, setSelectedTable] = useState(null);
+  const [activeCategory, setActiveCategory] = useState('All');
 
   useEffect(() => {
     loadSchema();
@@ -111,41 +175,96 @@ export default function SqlQueryPage({ showToast }) {
     }
   }
 
+  function exportToCSV() {
+    if (!resultRows.length) return;
+    const headers = resultCols.join(',');
+    const rows = resultRows.map(r => 
+      resultCols.map(c => {
+        const val = r[c] === null || r[c] === undefined ? '' : String(r[c]);
+        return `"${val.replace(/"/g, '""')}"`;
+      }).join(',')
+    );
+    const csvContent = [headers, ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `query_result_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Exported query results to CSV', 'success');
+  }
+
   const isSelectResult = result && (result.rows || result.data) && Array.isArray(result.rows || result.data);
   const resultRows = result ? (result.rows || result.data || []) : [];
   const resultCols = result ? (result.columns || (resultRows.length > 0 ? Object.keys(resultRows[0]) : [])) : [];
   const tablesList = Object.keys(schemaMap).length > 0 ? Object.keys(schemaMap) : EXACT_18_TABLES;
+  const filteredCommands = activeCategory === 'All' 
+    ? QUICK_COMMANDS 
+    : QUICK_COMMANDS.filter(q => q.category === activeCategory);
 
   return (
     <div>
-      {/* Quick query buttons toolbar with Refresh */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+      {/* Category selector & quick query buttons toolbar */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Category Tabs */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {QUICK_COMMANDS.map((q, idx) => (
-            <button
-              key={idx}
-              onClick={() => setSql(q.sql)}
-              className="btn btn-secondary btn-sm"
-              style={{
-                padding: '5px 11px',
-                fontSize: '0.75rem',
-                fontFamily: q.label.startsWith('SELECT') ? 'var(--font-mono)' : 'inherit',
-                borderRadius: 'var(--radius-sm)'
-              }}
-            >
-              {q.label}
-            </button>
-          ))}
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
+            SQL Operations:
+          </span>
+          {SQL_CATEGORIES.map((cat) => {
+            const isActive = activeCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-sm)',
+                  background: isActive ? '#2563eb' : 'rgba(255, 255, 255, 0.05)',
+                  color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                  border: isActive ? '1px solid #3b82f6' : '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
         </div>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={loadSchema}
-          title="Refresh tables schema"
-          style={{ padding: '5px 10px', fontSize: '0.75rem' }}
-        >
-          <RefreshCw size={12} />
-          <span>Refresh</span>
-        </button>
+
+        {/* Quick query action buttons */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {filteredCommands.map((q, idx) => (
+              <button
+                key={idx}
+                onClick={() => setSql(q.sql)}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  padding: '5px 11px',
+                  fontSize: '0.75rem',
+                  fontFamily: q.label.startsWith('SELECT') ? 'var(--font-mono)' : 'inherit',
+                  borderRadius: 'var(--radius-sm)'
+                }}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={loadSchema}
+            title="Refresh tables schema"
+            style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+          >
+            <RefreshCw size={12} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
 
@@ -266,15 +385,26 @@ export default function SqlQueryPage({ showToast }) {
               <Terminal size={14} color="#2563eb" />
               <span>SQL Editor</span>
             </div>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleExecuteQuery}
-              disabled={executing}
-              style={{ padding: '4px 12px', fontSize: '0.78rem', fontWeight: 600 }}
-            >
-              <Play size={13} />
-              <span>{executing ? 'Executing...' : 'Run Query (Ctrl + Enter)'}</span>
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSql('')}
+                title="Clear editor"
+                style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+              >
+                <Trash2 size={13} />
+                <span>Clear</span>
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleExecuteQuery}
+                disabled={executing}
+                style={{ padding: '4px 12px', fontSize: '0.78rem', fontWeight: 600 }}
+              >
+                <Play size={13} />
+                <span>{executing ? 'Executing...' : 'Run Query (Ctrl + Enter)'}</span>
+              </button>
+            </div>
           </div>
 
           <textarea
@@ -369,9 +499,19 @@ export default function SqlQueryPage({ showToast }) {
               <h3 style={{ color: '#fff', fontSize: '0.92rem', fontWeight: 600 }}>Query Results</h3>
               <span className="badge badge-success">{resultRows.length} Row(s)</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#38bdf8', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>
-              <Clock size={13} />
-              <span>{result.executionTimeMs} ms</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={exportToCSV}
+                style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <Download size={13} />
+                <span>Export CSV</span>
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#38bdf8', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>
+                <Clock size={13} />
+                <span>{result.executionTimeMs} ms</span>
+              </div>
             </div>
           </div>
 

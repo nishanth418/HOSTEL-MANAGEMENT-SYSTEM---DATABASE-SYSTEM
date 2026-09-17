@@ -113,21 +113,37 @@ Open your browser to: **`http://localhost:3000`**
 
 ---
 
-## 🛡 SQL Query Security Sandbox
+## ⚡ Full-Spectrum SQL Studio & Operations Engine
 
-The application includes an **Interactive SQL Studio** allowing administrators to run custom analytical queries with multi-layer defensive validation:
+The application includes an **Interactive SQL Studio** and relational execution engine supporting **every category of SQL operation** directly from the website:
 
-1. **Permitted Queries**:
-   - `SELECT ...`
-   - Read-only Common Table Expressions: `WITH ... SELECT ...`
-2. **Blocked Operations (HTTP 403)**:
-   - Data mutations: `INSERT`, `UPDATE`, `DELETE`, `REPLACE`
-   - Schema alterations: `DROP`, `ALTER`, `CREATE`, `TRUNCATE`
-   - Administrative commands: `ATTACH`, `DETACH`, `PRAGMA`, `VACUUM`
-   - Transaction manipulations: `BEGIN`, `COMMIT`, `ROLLBACK`
-   - Multi-statement execution: Semicolons dividing multiple statements
-   - Comment bypass attempts: `--` or `/* ... */`
-3. **Execution Guard**: Powered by `better-sqlite3` statement inspector (`stmt.reader === true`).
+1. **DQL (Data Query Language)**:
+   - `SELECT *`, column projection, column aliases, expressions.
+   - Filtering: `WHERE`, `LIKE`, `IN`, `BETWEEN`, `AND`, `OR`, `NOT`.
+   - Sorting & Paging: `ORDER BY ... ASC/DESC`, `LIMIT`, `OFFSET`.
+   - Subqueries & Correlated Subqueries: `WHERE Amount > (SELECT AVG(Amount) FROM PAYMENT)`.
+   - Common Table Expressions: `WITH <cte_name> AS (...) SELECT ...`.
+2. **Joins & Multi-Table Relational Queries**:
+   - Multi-table `INNER JOIN` (linking 3+ tables: `STUDENT`, `ROOM`, `HOSTEL`).
+   - `LEFT OUTER JOIN` with aggregation to display counts across zero-resident records.
+   - Grouping & Filters: `GROUP BY`, `HAVING COUNT(*) >= 1`.
+   - Aggregate functions: `COUNT()`, `SUM()`, `AVG()`, `MIN()`, `MAX()`, `ROUND()`.
+3. **DML (Data Manipulation Language)**:
+   - `INSERT INTO <table> (...) VALUES (...)`
+   - `UPDATE <table> SET ... WHERE ...`
+   - `DELETE FROM <table> WHERE ...`
+   - Atomic rollback on failure with affected rows reporting (`changes`).
+4. **DDL (Data Definition Language)**:
+   - `CREATE TABLE IF NOT EXISTS ...`
+   - `ALTER TABLE ... ADD COLUMN ...`
+   - `CREATE VIEW IF NOT EXISTS ...`
+   - `CREATE INDEX IF NOT EXISTS ...`
+   - `DROP TABLE IF EXISTS ...`
+5. **Multi-Statement Batch Scripts in Atomic Transactions**:
+   - Runs sequential SQL scripts (DDL + DML + DQL) inside an atomic `db.transaction(...)`.
+   - Returns result tables when ending with queries, or total affected rows across all statements.
+   - Real-time millisecond execution profiling (`executionTimeMs`).
+   - 1-click **Export to CSV** for query output.
 
 ---
 
@@ -156,8 +172,12 @@ The system includes pre-compiled, optimized analytical reports utilizing SQL `JO
 - `GET /api/health` — Health status, DB connection, and table count verification.
 - `GET /api/dashboard/stats` — High-level KPI counts, occupancy rates, and alerts.
 - `GET /api/reports/:reportKey` — Executes any of the 13 multi-table reports with execution timing.
-- `POST /api/query` — Read-only SQL query runner with strict security checks.
-- Complete CRUD endpoints for `students`, `hostels`, `rooms`, `room-types`, `wardens`, `mess`, `meals`, `staff`, `suppliers`, `inventory`, `procurements`, `payments`.
+- `GET /api/query/schema` — Returns column and constraint metadata for all 18 tables.
+- `POST /api/query` — Universal SQL runner (DQL, DML, DDL, CTEs, multi-statement batch scripts).
+- `GET /api/tables/:tableName` — Dynamic relational table viewer with search, sorting, and pagination.
+- `POST /api/tables/:tableName` — Dynamic insert record with type parsing.
+- `PUT /api/tables/:tableName` — Dynamic update record by primary key criteria.
+- `DELETE /api/tables/:tableName` — Dynamic delete record with foreign key integrity.
 
 ---
 
@@ -167,14 +187,13 @@ The system includes pre-compiled, optimized analytical reports utilizing SQL `JO
 hostel-management/
 ├── database/
 │   ├── schema.sql              # 18 Table CREATE statements & constraints
-│   ├── seed.sql                # Realistic sample records
+│   ├── seed.sql                # Authentic database records
 │   └── hostel.db               # SQLite 3 Database file
 │
 ├── backend/
 │   ├── database.js             # Database connection, init, and table verifier
 │   ├── server.js               # Express application entrypoint
 │   ├── package.json            # Backend dependencies
-│   ├── test-backend.js         # Automated test suite
 │   └── routes/
 │       ├── dashboard.js        # KPI aggregations
 │       ├── students.js         # Student CRUD & phones
@@ -190,7 +209,8 @@ hostel-management/
 │       ├── procurements.js     # Purchase orders
 │       ├── payments.js         # Payments & breakdown
 │       ├── reports.js          # 13 SQL reports
-│       └── query.js            # Secure read-only SQL studio
+│       ├── tables.js           # Dynamic 18-table CRUD
+│       └── query.js            # Universal SQL execution engine
 │
 ├── frontend/
 │   ├── index.html              # HTML shell
@@ -201,10 +221,9 @@ hostel-management/
 │       ├── main.jsx            # React root
 │       ├── App.jsx             # Shell & navigation router
 │       ├── services/api.js     # API client service
-│       ├── components/         # Navbar, Sidebar, StatCard, Modal, Toast
-│       └── pages/              # 15 Dashboard and Entity pages
+│       ├── components/         # Navbar, Sidebar, StatCard, Modal, Toast, Footer
+│       └── pages/              # Dashboard, 18-Table Views, Reports, SQL Studio
 │
 ├── .gitignore
-├── .env.example
 └── README.md
 ```

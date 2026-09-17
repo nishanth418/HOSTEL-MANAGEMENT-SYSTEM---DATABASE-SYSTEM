@@ -1,0 +1,17 @@
+{
+  "name": "hostel-management-backend",
+  "version": "1.0.0",
+  "description": "Hostel Management System REST API with SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node -e \"require('./database').initDatabase()\"",
+    "verify-db": "node -e \"require('./database').verifyDatabase()\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

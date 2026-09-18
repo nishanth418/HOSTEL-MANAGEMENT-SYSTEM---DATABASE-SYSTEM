@@ -1,8 +1,7 @@
 # 🏢 HostelHub — Enterprise Hostel Management System
 
-[![Frontend Deployment](https://img.shields.io/badge/Frontend-Vercel-black?style=flat&logo=vercel)](https://hostel-management-system-database-system.vercel.app)
-[![Backend Deployment](https://img.shields.io/badge/Backend-Render-46E3B7?style=flat&logo=render)](https://hostel-management-system-database-system.onrender.com)
-[![Database](https://img.shields.io/badge/Database-SQLite%203%20(18%20Tables)-003B57?style=flat&logo=sqlite)](https://hostel-management-system-database-system.onrender.com/api/health)
+[![Frontend Deployment](https://img.shields.io/badge/Frontend-Vercel-black?style=flat&logo=vercel)](https://hostelmanagementsystem.vercel.app)
+[![Database](https://img.shields.io/badge/Database-SQLite%203%20(18%20Tables)-003B57?style=flat&logo=sqlite)](#-the-18-normalized-database-tables)
 [![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?style=flat&logo=node.js)](https://nodejs.org)
 [![React Version](https://img.shields.io/badge/React-18.x-61DAFB?style=flat&logo=react)](https://react.dev)
 [![Vite Build](https://img.shields.io/badge/Bundler-Vite%206-646CFF?style=flat&logo=vite)](https://vitejs.dev)
@@ -14,13 +13,11 @@ The system provides campus administrators, resident wardens, and mess supervisor
 
 ---
 
-## 🌐 Public Deployments & Live Demo
+## 🌐 Public Deployment & Live Demo
 
 | Service | Hosting Platform | URL | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend Application** | **Vercel** | [hostel-management-system-database-system.vercel.app](https://hostel-management-system-database-system.vercel.app) | ![Live](https://img.shields.io/badge/Status-Live-success) |
-| **Backend REST API** | **Render** | [hostel-management-system-database-system.onrender.com](https://hostel-management-system-database-system.onrender.com) | ![Healthy](https://img.shields.io/badge/Status-Active-success) |
-| **System Health Check** | **Render** | [api/health Endpoint](https://hostel-management-system-database-system.onrender.com/api/health) | ![18 Tables Online](https://img.shields.io/badge/Tables-18%2F18%20Connected-blue) |
+| **Hostel Management Application** | **Vercel** | [hostelmanagementsystem.vercel.app](https://hostelmanagementsystem.vercel.app) | ![Live](https://img.shields.io/badge/Status-Live-success) |
 
 ---
 

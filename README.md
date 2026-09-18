@@ -1,6 +1,6 @@
 # 🏢 HostelHub — Enterprise Hostel Management System
 
-[![Frontend Deployment](https://img.shields.io/badge/Frontend-Vercel-black?style=flat&logo=vercel)](https://hostelmanagementsystem.vercel.app)
+[![Frontend Deployment](https://img.shields.io/badge/Frontend-Vercel-black?style=flat&logo=vercel)](https://hostel-management-system-database-system-ao5stctla-nkp5.vercel.app/)
 [![Database](https://img.shields.io/badge/Database-SQLite%203%20(18%20Tables)-003B57?style=flat&logo=sqlite)](#-the-18-normalized-database-tables)
 [![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?style=flat&logo=node.js)](https://nodejs.org)
 [![React Version](https://img.shields.io/badge/React-18.x-61DAFB?style=flat&logo=react)](https://react.dev)
@@ -17,7 +17,7 @@ The system provides campus administrators, resident wardens, and mess supervisor
 
 | Service | Hosting Platform | URL | Status |
 | :--- | :--- | :--- | :--- |
-| **Hostel Management Application** | **Vercel** | [hostelmanagementsystem.vercel.app](https://hostelmanagementsystem.vercel.app) | ![Live](https://img.shields.io/badge/Status-Live-success) |
+| **Hostel Management Application** | **Vercel** | [hostel-management-system-database-system-ao5stctla-nkp5.vercel.app](https://hostel-management-system-database-system-ao5stctla-nkp5.vercel.app/) | ![Live](https://img.shields.io/badge/Status-Live-success) |
 
 ---
 

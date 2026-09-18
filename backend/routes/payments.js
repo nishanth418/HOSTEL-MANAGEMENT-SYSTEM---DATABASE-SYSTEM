@@ -1,213 +1,185 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
 // GET all payments with student name & payment details
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const { student_id, payment_status, method } = req.query;
-    let query = `
+    const { student_id, status, search } = req.query;
+    let sql = `
       SELECT 
-        p.*,
-        s.first_name || ' ' || s.last_name AS student_name,
-        s.email AS student_email,
-        r.room_number,
-        h.name AS hostel_name,
-        (SELECT COUNT(*) FROM PAYMENT_DETAIL pd WHERE pd.payment_id = p.payment_id) AS details_count
+        p.PaymentID AS payment_id,
+        p.PaymentID,
+        p.StudentID AS student_id,
+        p.StudentID,
+        p.Amount AS total_amount,
+        p.Amount AS amount,
+        p.Amount,
+        p.PaymentMode AS payment_method,
+        p.PaymentMode,
+        p.Status AS payment_status,
+        p.Status AS status,
+        p.Status,
+        p.PaymentDay,
+        p.PaymentMonth,
+        p.PaymentYear,
+        CONCAT(p.PaymentDay, '-', p.PaymentMonth, '-', p.PaymentYear) AS payment_date,
+        p.PaymentID AS transaction_id,
+        CONCAT(s.FirstName, ' ', s.LastName) AS student_name,
+        s.Email AS student_email,
+        s.RoomNo AS room_number,
+        h.HostelName AS hostel_name,
+        (SELECT COUNT(*) FROM PAYMENT_DETAIL pd WHERE pd.PaymentID = p.PaymentID) AS details_count
       FROM PAYMENT p
-      JOIN STUDENT s ON p.student_id = s.student_id
-      LEFT JOIN ROOM r ON s.room_id = r.room_id
-      LEFT JOIN HOSTEL h ON r.hostel_id = h.hostel_id
+      JOIN STUDENT s ON p.StudentID = s.StudentID
+      LEFT JOIN HOSTEL h ON s.HostelID = h.HostelID
       WHERE 1=1
     `;
     const params = [];
 
-    if (student_id) {
-      query += ` AND p.student_id = ?`;
-      params.push(student_id);
+    if (student_id && student_id.trim()) {
+      sql += ` AND p.StudentID = ?`;
+      params.push(student_id.trim());
     }
-    if (payment_status) {
-      query += ` AND p.payment_status = ?`;
-      params.push(payment_status);
+    if (status && status.trim()) {
+      sql += ` AND p.Status = ?`;
+      params.push(status.trim());
     }
-    if (method) {
-      query += ` AND p.payment_method = ?`;
-      params.push(method);
+    if (search && search.trim()) {
+      sql += ` AND (p.PaymentID LIKE ? OR s.FirstName LIKE ? OR s.LastName LIKE ?)`;
+      const s = `%${search.trim()}%`;
+      params.push(s, s, s);
     }
 
-    query += ` ORDER BY p.payment_date DESC, p.payment_id DESC`;
+    sql += ` ORDER BY p.PaymentID DESC`;
 
-    const rows = db.prepare(query).all(...params);
+    const rows = await query(sql, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching payments:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // GET single payment with detail items
-router.get('/:id', (req, res) => {
-  try {
-    const payment = db.prepare(`
-      SELECT 
-        p.*,
-        s.first_name || ' ' || s.last_name AS student_name,
-        s.email AS student_email,
-        r.room_number,
-        h.name AS hostel_name
-      FROM PAYMENT p
-      JOIN STUDENT s ON p.student_id = s.student_id
-      LEFT JOIN ROOM r ON s.room_id = r.room_id
-      LEFT JOIN HOSTEL h ON r.hostel_id = h.hostel_id
-      WHERE p.payment_id = ?
-    `).get(req.params.id);
-
-    if (!payment) {
-      return res.status(404).json({ success: false, message: 'Payment not found' });
-    }
-
-    const details = db.prepare(`SELECT * FROM PAYMENT_DETAIL WHERE payment_id = ?`).all(req.params.id);
-    res.json({ success: true, data: { ...payment, details } });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST create payment with optional details array
-router.post('/', (req, res) => {
-  try {
-    const { student_id, payment_date, total_amount, payment_method, payment_status, transaction_id, details } = req.body;
-    if (!student_id || !payment_date || total_amount === undefined || !payment_method || !transaction_id) {
-      return res.status(400).json({ success: false, message: 'All main payment fields and transaction_id are required' });
-    }
-
-    const insertTx = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO PAYMENT (student_id, payment_date, total_amount, payment_method, payment_status, transaction_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        Number(student_id),
-        payment_date,
-        Number(total_amount),
-        payment_method,
-        payment_status || 'Paid',
-        transaction_id
-      );
-
-      const paymentId = result.lastInsertRowid;
-
-      if (details && Array.isArray(details) && details.length > 0) {
-        const insDetail = db.prepare(`
-          INSERT INTO PAYMENT_DETAIL (payment_id, fee_type, amount, remarks)
-          VALUES (?, ?, ?, ?)
-        `);
-        for (const item of details) {
-          if (item.fee_type && item.amount !== undefined) {
-            insDetail.run(paymentId, item.fee_type, Number(item.amount), item.remarks || '');
-          }
-        }
-      } else {
-        // Create a default detail line if none provided
-        db.prepare(`
-          INSERT INTO PAYMENT_DETAIL (payment_id, fee_type, amount, remarks)
-          VALUES (?, 'Hostel Rent', ?, 'Standard Monthly Fee')
-        `).run(paymentId, Number(total_amount));
-      }
-
-      return paymentId;
-    });
-
-    const paymentId = insertTx();
-    res.status(201).json({ success: true, message: 'Payment created successfully', paymentId });
-  } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed: PAYMENT.transaction_id')) {
-      return res.status(409).json({ success: false, message: 'A payment with this transaction ID already exists' });
-    }
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// PUT update payment
-router.put('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const paymentId = req.params.id;
-    const { student_id, payment_date, total_amount, payment_method, payment_status, transaction_id, details } = req.body;
+    const rows = await query(`
+      SELECT 
+        p.PaymentID AS payment_id,
+        p.PaymentID,
+        p.StudentID AS student_id,
+        p.StudentID,
+        p.Amount AS total_amount,
+        p.Amount,
+        p.PaymentMode AS payment_method,
+        p.PaymentMode,
+        p.Status AS payment_status,
+        p.Status,
+        p.PaymentDay,
+        p.PaymentMonth,
+        p.PaymentYear,
+        CONCAT(p.PaymentDay, '-', p.PaymentMonth, '-', p.PaymentYear) AS payment_date,
+        p.PaymentID AS transaction_id,
+        CONCAT(s.FirstName, ' ', s.LastName) AS student_name,
+        s.Email AS student_email,
+        s.RoomNo AS room_number,
+        h.HostelName AS hostel_name
+      FROM PAYMENT p
+      JOIN STUDENT s ON p.StudentID = s.StudentID
+      LEFT JOIN HOSTEL h ON s.HostelID = h.HostelID
+      WHERE p.PaymentID = ?
+    `, [paymentId]);
 
-    const existing = db.prepare(`SELECT * FROM PAYMENT WHERE payment_id = ?`).get(paymentId);
-    if (!existing) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Payment not found' });
     }
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
-        UPDATE PAYMENT SET
-          student_id = ?, payment_date = ?, total_amount = ?,
-          payment_method = ?, payment_status = ?, transaction_id = ?
-        WHERE payment_id = ?
-      `).run(
-        student_id ? Number(student_id) : existing.student_id,
-        payment_date || existing.payment_date,
-        total_amount !== undefined ? Number(total_amount) : existing.total_amount,
-        payment_method || existing.payment_method,
-        payment_status || existing.payment_status,
-        transaction_id || existing.transaction_id,
-        paymentId
-      );
+    const payment = rows[0];
+    const details = await query(`
+      SELECT 
+        PaymentID,
+        DetailID,
+        Month,
+        Year,
+        MessCharges,
+        OtherCharges,
+        (MessCharges + OtherCharges) AS total
+      FROM PAYMENT_DETAIL 
+      WHERE PaymentID = ?
+    `, [paymentId]);
 
-      if (details && Array.isArray(details)) {
-        db.prepare(`DELETE FROM PAYMENT_DETAIL WHERE payment_id = ?`).run(paymentId);
-        const insDetail = db.prepare(`
-          INSERT INTO PAYMENT_DETAIL (payment_id, fee_type, amount, remarks)
-          VALUES (?, ?, ?, ?)
-        `);
-        for (const item of details) {
-          if (item.fee_type && item.amount !== undefined) {
-            insDetail.run(paymentId, item.fee_type, Number(item.amount), item.remarks || '');
-          }
-        }
-      }
-    });
-
-    updateTx();
-    res.json({ success: true, message: 'Payment updated successfully' });
+    res.json({ success: true, data: { ...payment, details } });
   } catch (error) {
+    console.error('Error fetching payment by ID:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST create payment
+router.post('/', async (req, res) => {
+  try {
+    const { PaymentID, payment_id, StudentID, student_id, Amount, total_amount, amount, PaymentMode, payment_method, Status, status, payment_status, PaymentDay, PaymentMonth, PaymentYear, details } = req.body;
+    const finalId = PaymentID || payment_id || ('PAY' + (1000 + Math.floor(Math.random() * 9000)));
+    const finalStudentId = StudentID || student_id;
+    const finalAmount = Number(Amount !== undefined ? Amount : (total_amount !== undefined ? total_amount : (amount || 10000)));
+    const now = new Date();
+    const day = PaymentDay || now.getDate();
+    const month = PaymentMonth || (now.getMonth() + 1);
+    const year = PaymentYear || now.getFullYear();
+
+    if (!finalStudentId) {
+      return res.status(400).json({ success: false, message: 'Student ID is required' });
+    }
+
+    await execute(`
+      INSERT INTO PAYMENT (PaymentID, StudentID, Amount, PaymentMode, Status, PaymentDay, PaymentMonth, PaymentYear)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      finalId,
+      finalStudentId,
+      finalAmount,
+      PaymentMode || payment_method || 'UPI',
+      Status || payment_status || status || 'Successful',
+      day,
+      month,
+      year
+    ]);
+
+    if (details && Array.isArray(details) && details.length > 0) {
+      for (let i = 0; i < details.length; i++) {
+        const d = details[i];
+        const detailId = d.DetailID || d.detail_id || ('D' + (i + 1));
+        await execute(`
+          INSERT INTO PAYMENT_DETAIL (PaymentID, DetailID, Month, Year, MessCharges, OtherCharges)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+          finalId,
+          detailId,
+          d.Month || d.month || 'Current',
+          Number(d.Year || d.year || year),
+          Number(d.MessCharges || d.mess_charges || 0),
+          Number(d.OtherCharges || d.other_charges || 0)
+        ]);
+      }
+    }
+
+    res.status(201).json({ success: true, message: 'Payment recorded successfully', paymentId: finalId });
+  } catch (error) {
+    console.error('Error creating payment:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE payment
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    db.prepare(`DELETE FROM PAYMENT WHERE payment_id = ?`).run(req.params.id);
+    const paymentId = req.params.id;
+    await execute(`DELETE FROM PAYMENT WHERE PaymentID = ?`, [paymentId]);
     res.json({ success: true, message: 'Payment deleted successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Add payment detail line
-router.post('/:id/details', (req, res) => {
-  try {
-    const { fee_type, amount, remarks } = req.body;
-    if (!fee_type || amount === undefined) {
-      return res.status(400).json({ success: false, message: 'fee_type and amount are required' });
-    }
-    const result = db.prepare(`
-      INSERT INTO PAYMENT_DETAIL (payment_id, fee_type, amount, remarks)
-      VALUES (?, ?, ?, ?)
-    `).run(req.params.id, fee_type, Number(amount), remarks || '');
-
-    res.status(201).json({ success: true, message: 'Detail line added', detailId: result.lastInsertRowid });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Remove payment detail line
-router.delete('/:id/details/:detail_id', (req, res) => {
-  try {
-    db.prepare(`DELETE FROM PAYMENT_DETAIL WHERE payment_id = ? AND detail_id = ?`).run(req.params.id, req.params.detail_id);
-    res.json({ success: true, message: 'Detail line deleted' });
-  } catch (error) {
+    console.error('Error deleting payment:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

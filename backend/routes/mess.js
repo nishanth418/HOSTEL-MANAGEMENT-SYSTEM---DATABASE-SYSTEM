@@ -1,141 +1,152 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
-// GET all mess facilities with contacts & hostel info
-router.get('/', (req, res) => {
+// GET all mess facilities with contacts
+router.get('/', async (req, res) => {
   try {
-    const rows = db.prepare(`
+    const rows = await query(`
       SELECT 
-        m.*,
-        h.name AS hostel_name,
-        GROUP_CONCAT(mc.contact_number, ', ') AS contact_numbers,
-        (SELECT COUNT(*) FROM MEAL ml WHERE ml.mess_id = m.mess_id) AS total_meals_scheduled,
-        (SELECT COUNT(*) FROM STAFF st WHERE st.mess_id = m.mess_id) AS staff_count
+        m.MessID AS mess_id,
+        m.MessID,
+        m.MessName AS mess_name,
+        m.MessName AS name,
+        m.MessName,
+        m.MessType AS type,
+        m.MessType AS mess_type,
+        m.MessType,
+        m.Location AS location,
+        m.Location,
+        GROUP_CONCAT(mc.ContactNo, ', ') AS contact_numbers,
+        (SELECT COUNT(*) FROM MEAL ml WHERE ml.MessID = m.MessID) AS total_meals_scheduled,
+        (SELECT COUNT(*) FROM STAFF st WHERE st.MessID = m.MessID) AS staff_count
       FROM MESS m
-      LEFT JOIN HOSTEL h ON m.hostel_id = h.hostel_id
-      LEFT JOIN MESS_CONTACT mc ON m.mess_id = mc.mess_id
-      GROUP BY m.mess_id
-      ORDER BY m.mess_id ASC
-    `).all();
+      LEFT JOIN MESS_CONTACT mc ON m.MessID = mc.MessID
+      GROUP BY m.MessID, m.MessName, m.MessType, m.Location
+      ORDER BY m.MessID ASC
+    `);
 
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching mess list:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // GET single mess
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const mess = db.prepare(`
-      SELECT m.*, h.name AS hostel_name
+    const messId = req.params.id;
+    const rows = await query(`
+      SELECT 
+        m.MessID AS mess_id,
+        m.MessID,
+        m.MessName AS mess_name,
+        m.MessName AS name,
+        m.MessName,
+        m.MessType AS type,
+        m.MessType AS mess_type,
+        m.MessType,
+        m.Location AS location,
+        m.Location
       FROM MESS m
-      LEFT JOIN HOSTEL h ON m.hostel_id = h.hostel_id
-      WHERE m.mess_id = ?
-    `).get(req.params.id);
+      WHERE m.MessID = ?
+    `, [messId]);
 
-    if (!mess) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Mess not found' });
     }
 
-    const contacts = db.prepare(`SELECT contact_number FROM MESS_CONTACT WHERE mess_id = ?`).all(req.params.id).map(c => c.contact_number);
-    const meals = db.prepare(`SELECT * FROM MEAL WHERE mess_id = ? ORDER BY day_of_week, start_time`).all(req.params.id);
-    const staff = db.prepare(`SELECT staff_id, name, role FROM STAFF WHERE mess_id = ?`).all(req.params.id);
+    const mess = rows[0];
+    const contactRows = await query(`SELECT ContactNo as contact_number FROM MESS_CONTACT WHERE MessID = ?`, [messId]);
+    const contacts = contactRows.map(c => c.contact_number);
+    const meals = await query(`SELECT MealID as meal_id, MealName as meal_name, Description as description, Cost as cost FROM MEAL WHERE MessID = ?`, [messId]);
+    const staff = await query(`SELECT StaffID as staff_id, StaffName as name, Role as role FROM STAFF WHERE MessID = ?`, [messId]);
 
     res.json({ success: true, data: { ...mess, contacts, meals, staff } });
   } catch (error) {
+    console.error('Error fetching mess by ID:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // POST create mess
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { mess_name, hostel_id, capacity, type, contacts } = req.body;
-    if (!mess_name || !capacity || !type) {
-      return res.status(400).json({ success: false, message: 'mess_name, capacity, and type are required' });
+    const { MessID, mess_id, MessName, mess_name, name, MessType, type, mess_type, Location, location, contacts } = req.body;
+    const finalId = MessID || mess_id || ('M' + (Math.floor(Math.random() * 90) + 10));
+    const finalName = MessName || mess_name || name;
+    if (!finalName) {
+      return res.status(400).json({ success: false, message: 'Mess name is required' });
     }
 
-    const insertTx = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO MESS (mess_name, hostel_id, capacity, type)
-        VALUES (?, ?, ?, ?)
-      `).run(mess_name, hostel_id ? Number(hostel_id) : null, Number(capacity), type);
+    await execute(`
+      INSERT INTO MESS (MessID, MessName, MessType, Location)
+      VALUES (?, ?, ?, ?)
+    `, [finalId, finalName, MessType || type || mess_type || 'Mixed', Location || location || 'Campus Block']);
 
-      const messId = result.lastInsertRowid;
-
-      if (contacts && Array.isArray(contacts)) {
-        const insContact = db.prepare(`INSERT INTO MESS_CONTACT (mess_id, contact_number) VALUES (?, ?)`);
-        for (const c of contacts) {
-          if (c && c.trim()) {
-            insContact.run(messId, c.trim());
-          }
+    if (contacts && Array.isArray(contacts)) {
+      for (const c of contacts) {
+        if (c && String(c).trim()) {
+          await execute(`INSERT INTO MESS_CONTACT (MessID, ContactNo) VALUES (?, ?)`, [finalId, String(c).trim()]);
         }
       }
-
-      return messId;
-    });
-
-    const messId = insertTx();
-    res.status(201).json({ success: true, message: 'Mess facility created successfully', messId });
-  } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed: MESS.mess_name')) {
-      return res.status(409).json({ success: false, message: 'A mess with this name already exists' });
     }
+
+    res.status(201).json({ success: true, message: 'Mess created successfully', messId: finalId });
+  } catch (error) {
+    console.error('Error creating mess:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // PUT update mess
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const messId = req.params.id;
-    const { mess_name, hostel_id, capacity, type, contacts } = req.body;
+    const body = req.body || {};
 
-    const existing = db.prepare(`SELECT * FROM MESS WHERE mess_id = ?`).get(messId);
-    if (!existing) {
+    const existingRows = await query(`SELECT * FROM MESS WHERE MessID = ?`, [messId]);
+    if (existingRows.length === 0) {
       return res.status(404).json({ success: false, message: 'Mess not found' });
     }
+    const existing = existingRows[0];
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
-        UPDATE MESS SET
-          mess_name = ?, hostel_id = ?, capacity = ?, type = ?
-        WHERE mess_id = ?
-      `).run(
-        mess_name || existing.mess_name,
-        hostel_id !== undefined ? (hostel_id ? Number(hostel_id) : null) : existing.hostel_id,
-        capacity !== undefined ? Number(capacity) : existing.capacity,
-        type || existing.type,
-        messId
-      );
+    await execute(`
+      UPDATE MESS SET
+        MessName = ?, MessType = ?, Location = ?
+      WHERE MessID = ?
+    `, [
+      body.MessName || body.mess_name || body.name || existing.MessName,
+      body.MessType || body.type || body.mess_type || existing.MessType,
+      body.Location || body.location || existing.Location,
+      messId
+    ]);
 
-      if (contacts && Array.isArray(contacts)) {
-        db.prepare(`DELETE FROM MESS_CONTACT WHERE mess_id = ?`).run(messId);
-        const insContact = db.prepare(`INSERT INTO MESS_CONTACT (mess_id, contact_number) VALUES (?, ?)`);
-        for (const c of contacts) {
-          if (c && c.trim()) {
-            insContact.run(messId, c.trim());
-          }
+    if (body.contacts && Array.isArray(body.contacts)) {
+      await execute(`DELETE FROM MESS_CONTACT WHERE MessID = ?`, [messId]);
+      for (const c of body.contacts) {
+        if (c && String(c).trim()) {
+          await execute(`INSERT INTO MESS_CONTACT (MessID, ContactNo) VALUES (?, ?)`, [messId, String(c).trim()]);
         }
       }
-    });
+    }
 
-    updateTx();
     res.json({ success: true, message: 'Mess updated successfully' });
   } catch (error) {
+    console.error('Error updating mess:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE mess
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const messId = req.params.id;
-    db.prepare(`DELETE FROM MESS WHERE mess_id = ?`).run(messId);
+    await execute(`DELETE FROM MESS WHERE MessID = ?`, [messId]);
     res.json({ success: true, message: 'Mess deleted successfully' });
   } catch (error) {
+    console.error('Error deleting mess:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

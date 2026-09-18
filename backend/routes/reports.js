@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query } = require('../database');
 
 const REPORT_DEFINITIONS = {
   'student-room-hostel': {
@@ -9,7 +9,7 @@ const REPORT_DEFINITIONS = {
     sql: `
       SELECT 
         s.StudentID,
-        s.FirstName || ' ' || s.LastName AS StudentName,
+        CONCAT(s.FirstName, ' ', s.LastName) AS StudentName,
         s.Email,
         s.Gender,
         s.PlanType,
@@ -28,7 +28,7 @@ const REPORT_DEFINITIONS = {
     sql: `
       SELECT 
         s.StudentID,
-        s.FirstName || ' ' || s.LastName AS StudentName,
+        CONCAT(s.FirstName, ' ', s.LastName) AS StudentName,
         s.Email,
         sp.PhoneNo
       FROM STUDENT s
@@ -149,9 +149,9 @@ const REPORT_DEFINITIONS = {
         p.Amount,
         p.PaymentMode,
         p.Status,
-        p.PaymentDay || '-' || p.PaymentMonth || '-' || p.PaymentYear AS PaymentDate,
+        CONCAT(p.PaymentDay, '-', p.PaymentMonth, '-', p.PaymentYear) AS PaymentDate,
         s.StudentID,
-        s.FirstName || ' ' || s.LastName AS StudentName,
+        CONCAT(s.FirstName, ' ', s.LastName) AS StudentName,
         s.Email,
         s.RoomNo,
         h.HostelName
@@ -175,7 +175,7 @@ const REPORT_DEFINITIONS = {
       FROM HOSTEL h
       LEFT JOIN ROOM r ON h.HostelID = r.HostelID
       LEFT JOIN STUDENT s ON h.HostelID = s.HostelID
-      GROUP BY h.HostelID
+      GROUP BY h.HostelID, h.HostelName, h.TotalFloors
       ORDER BY h.HostelID;
     `
   },
@@ -194,7 +194,7 @@ const REPORT_DEFINITIONS = {
       FROM ROOM r
       JOIN HOSTEL h ON r.HostelID = h.HostelID
       LEFT JOIN STUDENT s ON r.RoomNo = s.RoomNo
-      GROUP BY r.RoomNo
+      GROUP BY r.RoomNo, r.FloorNo, r.Type, r.Capacity, r.RoomRent, h.HostelName
       ORDER BY h.HostelName, r.FloorNo, r.RoomNo;
     `
   },
@@ -204,7 +204,7 @@ const REPORT_DEFINITIONS = {
     sql: `
       SELECT 
         s.StudentID,
-        s.FirstName || ' ' || s.LastName AS StudentName,
+        CONCAT(s.FirstName, ' ', s.LastName) AS StudentName,
         s.Email,
         s.RoomNo,
         h.HostelName,
@@ -213,7 +213,7 @@ const REPORT_DEFINITIONS = {
       FROM STUDENT s
       LEFT JOIN HOSTEL h ON s.HostelID = h.HostelID
       LEFT JOIN PAYMENT p ON s.StudentID = p.StudentID
-      GROUP BY s.StudentID
+      GROUP BY s.StudentID, s.FirstName, s.LastName, s.Email, s.RoomNo, h.HostelName
       ORDER BY TotalPaidAmount DESC;
     `
   },
@@ -230,7 +230,7 @@ const REPORT_DEFINITIONS = {
         COALESCE(SUM(p.Quantity), 0) AS TotalProcuredQuantity
       FROM INVENTORY_ITEM i
       LEFT JOIN PROCURES p ON i.ItemID = p.ItemID
-      GROUP BY i.ItemID
+      GROUP BY i.ItemID, i.ItemName, i.Category, i.Unit
       ORDER BY i.Category, i.ItemName;
     `
   }
@@ -247,7 +247,7 @@ router.get('/', (req, res) => {
 });
 
 // GET execution of specific report
-router.get('/:reportKey', (req, res) => {
+router.get('/:reportKey', async (req, res) => {
   try {
     const { reportKey } = req.params;
     const report = REPORT_DEFINITIONS[reportKey];
@@ -256,7 +256,7 @@ router.get('/:reportKey', (req, res) => {
     }
 
     const startTime = process.hrtime();
-    const rows = db.prepare(report.sql).all();
+    const rows = await query(report.sql);
     const diff = process.hrtime(startTime);
     const executionTimeMs = (diff[0] * 1000 + diff[1] / 1e6).toFixed(2);
 
@@ -271,6 +271,7 @@ router.get('/:reportKey', (req, res) => {
       data: rows
     });
   } catch (error) {
+    console.error(`Error running report '${req.params.reportKey}':`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

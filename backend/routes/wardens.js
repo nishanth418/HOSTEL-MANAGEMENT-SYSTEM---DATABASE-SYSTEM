@@ -1,164 +1,158 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
 // GET all wardens with phone numbers and assigned hostel
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const wardens = db.prepare(`
+    const rows = await query(`
       SELECT 
-        w.*,
-        h.name AS hostel_name,
-        h.hostel_id,
-        GROUP_CONCAT(wp.phone_number, ', ') AS phone_numbers
+        w.WardenID AS warden_id,
+        w.WardenID,
+        w.WardenName AS name,
+        w.WardenName,
+        w.Email AS email,
+        w.Email,
+        w.JoiningDate AS join_date,
+        w.JoiningDate,
+        h.HostelName AS hostel_name,
+        h.HostelID AS hostel_id,
+        GROUP_CONCAT(wp.PhoneNo, ', ') AS phone_numbers
       FROM WARDEN w
-      LEFT JOIN HOSTEL h ON w.warden_id = h.warden_id
-      LEFT JOIN WARDEN_PHONE wp ON w.warden_id = wp.warden_id
-      GROUP BY w.warden_id
-      ORDER BY w.warden_id ASC
-    `).all();
+      LEFT JOIN HOSTEL h ON w.WardenID = h.WardenID
+      LEFT JOIN WARDEN_PHONE wp ON w.WardenID = wp.WardenID
+      GROUP BY w.WardenID, w.WardenName, w.Email, w.JoiningDate, h.HostelName, h.HostelID
+      ORDER BY w.WardenID ASC
+    `);
 
-    res.json({ success: true, count: wardens.length, data: wardens });
+    res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching wardens:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // GET single warden
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const warden = db.prepare(`
+    const wardenId = req.params.id;
+    const rows = await query(`
       SELECT 
-        w.*,
-        h.name AS hostel_name,
-        h.hostel_id
+        w.WardenID AS warden_id,
+        w.WardenID,
+        w.WardenName AS name,
+        w.WardenName,
+        w.Email AS email,
+        w.Email,
+        w.JoiningDate AS join_date,
+        w.JoiningDate,
+        h.HostelName AS hostel_name,
+        h.HostelID AS hostel_id
       FROM WARDEN w
-      LEFT JOIN HOSTEL h ON w.warden_id = h.warden_id
-      WHERE w.warden_id = ?
-    `).get(req.params.id);
+      LEFT JOIN HOSTEL h ON w.WardenID = h.WardenID
+      WHERE w.WardenID = ?
+    `, [wardenId]);
 
-    if (!warden) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Warden not found' });
     }
 
-    const phones = db.prepare(`SELECT phone_number FROM WARDEN_PHONE WHERE warden_id = ?`).all(req.params.id).map(p => p.phone_number);
+    const warden = rows[0];
+    const phoneRows = await query(`SELECT PhoneNo as phone_number FROM WARDEN_PHONE WHERE WardenID = ?`, [wardenId]);
+    const phones = phoneRows.map(p => p.phone_number);
+
     res.json({ success: true, data: { ...warden, phones } });
   } catch (error) {
+    console.error('Error fetching warden by ID:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // POST create warden
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { name, email, gender, address, join_date, salary, phones } = req.body;
-    if (!name || !email || !join_date || salary === undefined) {
-      return res.status(400).json({ success: false, message: 'Name, email, join_date, and salary are required' });
+    const { WardenID, warden_id, WardenName, name, Email, email, JoiningDate, join_date, phones } = req.body;
+    const finalId = WardenID || warden_id || ('W' + (100 + Math.floor(Math.random() * 900)));
+    const finalName = WardenName || name;
+    if (!finalName) {
+      return res.status(400).json({ success: false, message: 'Warden name is required' });
     }
 
-    const insertTx = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO WARDEN (name, email, gender, address, join_date, salary)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(name, email, gender || 'Other', address || '', join_date, Number(salary));
+    await execute(`
+      INSERT INTO WARDEN (WardenID, WardenName, Email, JoiningDate)
+      VALUES (?, ?, ?, ?)
+    `, [finalId, finalName, Email || email || '', JoiningDate || join_date || '01-JAN-22']);
 
-      const wardenId = result.lastInsertRowid;
-
-      if (phones && Array.isArray(phones)) {
-        const insertPhone = db.prepare(`INSERT INTO WARDEN_PHONE (warden_id, phone_number) VALUES (?, ?)`);
-        for (const phone of phones) {
-          if (phone && phone.trim()) {
-            insertPhone.run(wardenId, phone.trim());
-          }
+    if (phones && Array.isArray(phones)) {
+      for (const phone of phones) {
+        if (phone && String(phone).trim()) {
+          await execute(`INSERT INTO WARDEN_PHONE (WardenID, PhoneNo) VALUES (?, ?)`, [finalId, String(phone).trim()]);
         }
       }
-      return wardenId;
-    });
-
-    const wardenId = insertTx();
-    res.status(201).json({ success: true, message: 'Warden created successfully', wardenId });
-  } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed: WARDEN.email')) {
-      return res.status(409).json({ success: false, message: 'A warden with this email already exists' });
     }
+
+    res.status(201).json({ success: true, message: 'Warden created successfully', wardenId: finalId });
+  } catch (error) {
+    console.error('Error creating warden:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // PUT update warden
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const wardenId = req.params.id;
-    const { name, email, gender, address, join_date, salary, phones } = req.body;
+    const body = req.body || {};
 
-    const existing = db.prepare(`SELECT * FROM WARDEN WHERE warden_id = ?`).get(wardenId);
-    if (!existing) {
+    const existingRows = await query(`SELECT * FROM WARDEN WHERE WardenID = ?`, [wardenId]);
+    if (existingRows.length === 0) {
       return res.status(404).json({ success: false, message: 'Warden not found' });
     }
+    const existing = existingRows[0];
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
-        UPDATE WARDEN SET
-          name = ?, email = ?, gender = ?, address = ?, join_date = ?, salary = ?
-        WHERE warden_id = ?
-      `).run(
-        name || existing.name,
-        email || existing.email,
-        gender || existing.gender,
-        address !== undefined ? address : existing.address,
-        join_date || existing.join_date,
-        salary !== undefined ? Number(salary) : existing.salary,
-        wardenId
-      );
+    await execute(`
+      UPDATE WARDEN SET
+        WardenName = ?, Email = ?, JoiningDate = ?
+      WHERE WardenID = ?
+    `, [
+      body.WardenName || body.name || existing.WardenName,
+      body.Email || body.email || existing.Email,
+      body.JoiningDate || body.join_date || existing.JoiningDate,
+      wardenId
+    ]);
 
-      if (phones && Array.isArray(phones)) {
-        db.prepare(`DELETE FROM WARDEN_PHONE WHERE warden_id = ?`).run(wardenId);
-        const insertPhone = db.prepare(`INSERT INTO WARDEN_PHONE (warden_id, phone_number) VALUES (?, ?)`);
-        for (const phone of phones) {
-          if (phone && phone.trim()) {
-            insertPhone.run(wardenId, phone.trim());
-          }
+    if (body.phones && Array.isArray(body.phones)) {
+      await execute(`DELETE FROM WARDEN_PHONE WHERE WardenID = ?`, [wardenId]);
+      for (const phone of body.phones) {
+        if (phone && String(phone).trim()) {
+          await execute(`INSERT INTO WARDEN_PHONE (WardenID, PhoneNo) VALUES (?, ?)`, [wardenId, String(phone).trim()]);
         }
       }
-    });
+    }
 
-    updateTx();
     res.json({ success: true, message: 'Warden updated successfully' });
   } catch (error) {
+    console.error('Error updating warden:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE warden
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const wardenId = req.params.id;
-    db.prepare(`DELETE FROM WARDEN WHERE warden_id = ?`).run(wardenId);
+    const [hostelCount] = await query(`SELECT COUNT(*) AS count FROM HOSTEL WHERE WardenID = ?`, [wardenId]);
+    if (hostelCount && Number(hostelCount.count) > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete warden: assigned to ${hostelCount.count} hostel(s). Reassign hostel first.`
+      });
+    }
+
+    await execute(`DELETE FROM WARDEN WHERE WardenID = ?`, [wardenId]);
     res.json({ success: true, message: 'Warden deleted successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Warden phone operations
-router.post('/:id/phones', (req, res) => {
-  try {
-    const { phone_number } = req.body;
-    if (!phone_number) {
-      return res.status(400).json({ success: false, message: 'Phone number is required' });
-    }
-    db.prepare(`INSERT INTO WARDEN_PHONE (warden_id, phone_number) VALUES (?, ?)`).run(req.params.id, phone_number.trim());
-    res.status(201).json({ success: true, message: 'Phone number added' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-router.delete('/:id/phones/:phone', (req, res) => {
-  try {
-    db.prepare(`DELETE FROM WARDEN_PHONE WHERE warden_id = ? AND phone_number = ?`).run(req.params.id, req.params.phone);
-    res.json({ success: true, message: 'Phone number deleted' });
-  } catch (error) {
+    console.error('Error deleting warden:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

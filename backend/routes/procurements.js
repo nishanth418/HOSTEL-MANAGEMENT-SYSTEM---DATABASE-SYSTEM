@@ -1,151 +1,104 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
 // GET all procurements
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const { supplier_id, item_id, status } = req.query;
-    let query = `
+    const { supplier_id, item_id, mess_id } = req.query;
+    let sql = `
       SELECT 
-        p.*,
-        s.name AS supplier_name,
-        s.company_name AS supplier_company,
-        i.item_name,
-        i.category AS item_category,
-        i.unit AS item_unit
+        CONCAT(p.MessID, '-', p.SupplierID, '-', p.ItemID) AS procure_id,
+        p.MessID AS mess_id,
+        p.MessID,
+        m.MessName AS mess_name,
+        p.SupplierID AS supplier_id,
+        p.SupplierID,
+        s.SupplierName AS supplier_name,
+        p.ItemID AS item_id,
+        p.ItemID,
+        i.ItemName AS item_name,
+        i.Category AS item_category,
+        i.Unit AS item_unit,
+        p.Quantity AS quantity,
+        p.Quantity,
+        (p.Quantity * 100) AS total_cost,
+        'Completed' AS status
       FROM PROCURES p
-      JOIN SUPPLIER s ON p.supplier_id = s.supplier_id
-      JOIN INVENTORY_ITEM i ON p.item_id = i.item_id
+      JOIN MESS m ON p.MessID = m.MessID
+      JOIN SUPPLIER s ON p.SupplierID = s.SupplierID
+      JOIN INVENTORY_ITEM i ON p.ItemID = i.ItemID
       WHERE 1=1
     `;
     const params = [];
 
-    if (supplier_id) {
-      query += ` AND p.supplier_id = ?`;
-      params.push(supplier_id);
+    if (supplier_id && supplier_id.trim()) {
+      sql += ` AND p.SupplierID = ?`;
+      params.push(supplier_id.trim());
     }
-    if (item_id) {
-      query += ` AND p.item_id = ?`;
-      params.push(item_id);
+    if (item_id && item_id.trim()) {
+      sql += ` AND p.ItemID = ?`;
+      params.push(item_id.trim());
     }
-    if (status) {
-      query += ` AND p.status = ?`;
-      params.push(status);
+    if (mess_id && mess_id.trim()) {
+      sql += ` AND p.MessID = ?`;
+      params.push(mess_id.trim());
     }
 
-    query += ` ORDER BY p.procure_date DESC, p.procure_id DESC`;
+    sql += ` ORDER BY p.MessID ASC, p.SupplierID ASC`;
 
-    const rows = db.prepare(query).all(...params);
+    const rows = await query(sql, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching procurements:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// GET single procurement
-router.get('/:id', (req, res) => {
+// POST create procurement
+router.post('/', async (req, res) => {
   try {
-    const row = db.prepare(`
-      SELECT 
-        p.*,
-        s.name AS supplier_name,
-        s.company_name,
-        s.email AS supplier_email,
-        i.item_name,
-        i.unit
-      FROM PROCURES p
-      JOIN SUPPLIER s ON p.supplier_id = s.supplier_id
-      JOIN INVENTORY_ITEM i ON p.item_id = i.item_id
-      WHERE p.procure_id = ?
-    `).get(req.params.id);
+    const { MessID, mess_id, SupplierID, supplier_id, ItemID, item_id, Quantity, quantity } = req.body;
+    const finalMessId = MessID || mess_id;
+    const finalSupplierId = SupplierID || supplier_id;
+    const finalItemId = ItemID || item_id;
+    const finalQty = Number(Quantity !== undefined ? Quantity : (quantity || 10));
 
-    if (!row) {
-      return res.status(404).json({ success: false, message: 'Procurement record not found' });
-    }
-    res.json({ success: true, data: row });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// POST create procurement (optionally updates inventory quantity)
-router.post('/', (req, res) => {
-  try {
-    const { supplier_id, item_id, procure_date, quantity, unit_price, status } = req.body;
-    if (!supplier_id || !item_id || !procure_date || !quantity || unit_price === undefined) {
-      return res.status(400).json({ success: false, message: 'All procurement fields are required' });
+    if (!finalMessId || !finalSupplierId || !finalItemId) {
+      return res.status(400).json({ success: false, message: 'MessID, SupplierID, and ItemID are required' });
     }
 
-    const qty = Number(quantity);
-    const price = Number(unit_price);
-    const totalCost = qty * price;
-    const procStatus = status || 'Completed';
+    await execute(`
+      INSERT INTO PROCURES (MessID, SupplierID, ItemID, Quantity)
+      VALUES (?, ?, ?, ?)
+    `, [finalMessId, finalSupplierId, finalItemId, finalQty]);
 
-    const insertTx = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO PROCURES (supplier_id, item_id, procure_date, quantity, unit_price, total_cost, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(Number(supplier_id), Number(item_id), procure_date, qty, price, totalCost, procStatus);
-
-      // If completed, increment inventory quantity automatically
-      if (procStatus === 'Completed') {
-        db.prepare(`UPDATE INVENTORY_ITEM SET quantity = quantity + ? WHERE item_id = ?`).run(qty, Number(item_id));
-      }
-
-      return result.lastInsertRowid;
-    });
-
-    const procureId = insertTx();
-    res.status(201).json({ success: true, message: 'Procurement created successfully', procureId });
+    res.status(201).json({ success: true, message: 'Procurement recorded successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// PUT update procurement
-router.put('/:id', (req, res) => {
-  try {
-    const procureId = req.params.id;
-    const { supplier_id, item_id, procure_date, quantity, unit_price, status } = req.body;
-
-    const existing = db.prepare(`SELECT * FROM PROCURES WHERE procure_id = ?`).get(procureId);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Procurement record not found' });
-    }
-
-    const qty = quantity !== undefined ? Number(quantity) : existing.quantity;
-    const price = unit_price !== undefined ? Number(unit_price) : existing.unit_price;
-    const totalCost = qty * price;
-
-    db.prepare(`
-      UPDATE PROCURES SET
-        supplier_id = ?, item_id = ?, procure_date = ?,
-        quantity = ?, unit_price = ?, total_cost = ?, status = ?
-      WHERE procure_id = ?
-    `).run(
-      supplier_id ? Number(supplier_id) : existing.supplier_id,
-      item_id ? Number(item_id) : existing.item_id,
-      procure_date || existing.procure_date,
-      qty,
-      price,
-      totalCost,
-      status || existing.status,
-      procureId
-    );
-
-    res.json({ success: true, message: 'Procurement updated successfully' });
-  } catch (error) {
+    console.error('Error recording procurement:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE procurement
-router.delete('/:id', (req, res) => {
+router.delete('/', async (req, res) => {
   try {
-    db.prepare(`DELETE FROM PROCURES WHERE procure_id = ?`).run(req.params.id);
-    res.json({ success: true, message: 'Procurement record deleted successfully' });
+    const { MessID, mess_id, SupplierID, supplier_id, ItemID, item_id } = req.query;
+    const finalMessId = MessID || mess_id;
+    const finalSupplierId = SupplierID || supplier_id;
+    const finalItemId = ItemID || item_id;
+
+    if (!finalMessId || !finalSupplierId || !finalItemId) {
+      return res.status(400).json({ success: false, message: 'MessID, SupplierID, and ItemID parameters are required' });
+    }
+
+    await execute(`
+      DELETE FROM PROCURES WHERE MessID = ? AND SupplierID = ? AND ItemID = ?
+    `, [finalMessId, finalSupplierId, finalItemId]);
+
+    res.json({ success: true, message: 'Procurement removed successfully' });
   } catch (error) {
+    console.error('Error deleting procurement:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

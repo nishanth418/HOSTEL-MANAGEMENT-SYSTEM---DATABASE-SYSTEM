@@ -1,8 +1,9 @@
 require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const { db, verifyDatabase, getApplicationTables } = require('./database');
+const { db, verifyDatabase, getApplicationTables, getHealthStatus } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -29,19 +30,11 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   try {
-    const tableCheck = db.prepare(`SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';`).get();
-    const tables = getApplicationTables();
-    res.json({
-      status: 'healthy',
-      database: 'connected',
-      engine: 'SQLite 3 (better-sqlite3)',
-      totalApplicationTables: tableCheck.count,
-      tables,
-      foreignKeysEnforced: true,
-      timestamp: new Date().toISOString()
-    });
+    const health = await getHealthStatus();
+    const statusCode = health.status === 'healthy' ? 200 : 500;
+    res.status(statusCode).json(health);
   } catch (err) {
     res.status(500).json({
       status: 'unhealthy',

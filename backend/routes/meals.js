@@ -1,139 +1,148 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
-// GET meals with optional filtering by mess, day, meal_type
-router.get('/', (req, res) => {
+// GET meals with optional filtering by mess
+router.get('/', async (req, res) => {
   try {
-    const { mess_id, day_of_week, meal_type } = req.query;
-    let query = `
+    const { mess_id, search } = req.query;
+    let sql = `
       SELECT 
-        m.*,
-        ms.mess_name,
-        ms.type AS mess_type,
-        h.name AS hostel_name
+        m.MealID AS meal_id,
+        m.MealID,
+        m.MealName AS meal_name,
+        m.MealName AS name,
+        m.MealName,
+        m.Description AS description,
+        m.Description,
+        m.Cost AS cost,
+        m.Cost,
+        m.MessID AS mess_id,
+        m.MessID,
+        ms.MessName AS mess_name,
+        ms.MessType AS mess_type
       FROM MEAL m
-      JOIN MESS ms ON m.mess_id = ms.mess_id
-      LEFT JOIN HOSTEL h ON ms.hostel_id = h.hostel_id
+      JOIN MESS ms ON m.MessID = ms.MessID
       WHERE 1=1
     `;
     const params = [];
 
-    if (mess_id) {
-      query += ` AND m.mess_id = ?`;
-      params.push(mess_id);
+    if (mess_id && mess_id.trim()) {
+      sql += ` AND m.MessID = ?`;
+      params.push(mess_id.trim());
     }
-    if (day_of_week) {
-      query += ` AND m.day_of_week = ?`;
-      params.push(day_of_week);
-    }
-    if (meal_type) {
-      query += ` AND m.meal_type = ?`;
-      params.push(meal_type);
+    if (search && search.trim()) {
+      sql += ` AND (m.MealName LIKE ? OR m.Description LIKE ?)`;
+      const s = `%${search.trim()}%`;
+      params.push(s, s);
     }
 
-    query += `
-      ORDER BY 
-        CASE m.day_of_week
-          WHEN 'Monday' THEN 1
-          WHEN 'Tuesday' THEN 2
-          WHEN 'Wednesday' THEN 3
-          WHEN 'Thursday' THEN 4
-          WHEN 'Friday' THEN 5
-          WHEN 'Saturday' THEN 6
-          WHEN 'Sunday' THEN 7
-        END,
-        CASE m.meal_type
-          WHEN 'Breakfast' THEN 1
-          WHEN 'Lunch' THEN 2
-          WHEN 'Snacks' THEN 3
-          WHEN 'Dinner' THEN 4
-        END
-    `;
+    sql += ` ORDER BY m.MessID ASC, m.MealID ASC`;
 
-    const rows = db.prepare(query).all(...params);
+    const rows = await query(sql, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching meals:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // GET single meal
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const meal = db.prepare(`
-      SELECT m.*, ms.mess_name
+    const mealId = req.params.id;
+    const rows = await query(`
+      SELECT 
+        m.MealID AS meal_id,
+        m.MealID,
+        m.MealName AS meal_name,
+        m.MealName AS name,
+        m.MealName,
+        m.Description AS description,
+        m.Description,
+        m.Cost AS cost,
+        m.Cost,
+        m.MessID AS mess_id,
+        m.MessID,
+        ms.MessName AS mess_name
       FROM MEAL m
-      JOIN MESS ms ON m.mess_id = ms.mess_id
-      WHERE m.meal_id = ?
-    `).get(req.params.id);
+      JOIN MESS ms ON m.MessID = ms.MessID
+      WHERE m.MealID = ?
+    `, [mealId]);
 
-    if (!meal) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Meal not found' });
     }
-    res.json({ success: true, data: meal });
+    res.json({ success: true, data: rows[0] });
   } catch (error) {
+    console.error('Error fetching meal by ID:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // POST create meal
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { mess_id, day_of_week, meal_type, menu_description, start_time, end_time } = req.body;
-    if (!mess_id || !day_of_week || !meal_type || !menu_description || !start_time || !end_time) {
-      return res.status(400).json({ success: false, message: 'All meal fields are required' });
+    const { MealID, meal_id, MealName, meal_name, name, Description, description, Cost, cost, MessID, mess_id } = req.body;
+    const finalId = MealID || meal_id || ('ML' + (Math.floor(Math.random() * 90) + 10));
+    const finalName = MealName || meal_name || name;
+    const finalMessId = MessID || mess_id;
+
+    if (!finalName || !finalMessId) {
+      return res.status(400).json({ success: false, message: 'Meal name and Mess ID are required' });
     }
 
-    const result = db.prepare(`
-      INSERT INTO MEAL (mess_id, day_of_week, meal_type, menu_description, start_time, end_time)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(Number(mess_id), day_of_week, meal_type, menu_description, start_time, end_time);
+    await execute(`
+      INSERT INTO MEAL (MealID, MealName, Description, Cost, MessID)
+      VALUES (?, ?, ?, ?, ?)
+    `, [finalId, finalName, Description || description || '', Number(Cost !== undefined ? Cost : (cost || 100)), finalMessId]);
 
-    res.status(201).json({ success: true, message: 'Meal scheduled successfully', mealId: result.lastInsertRowid });
+    res.status(201).json({ success: true, message: 'Meal created successfully', mealId: finalId });
   } catch (error) {
+    console.error('Error creating meal:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // PUT update meal
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const mealId = req.params.id;
-    const { mess_id, day_of_week, meal_type, menu_description, start_time, end_time } = req.body;
+    const body = req.body || {};
 
-    const existing = db.prepare(`SELECT * FROM MEAL WHERE meal_id = ?`).get(mealId);
-    if (!existing) {
+    const existingRows = await query(`SELECT * FROM MEAL WHERE MealID = ?`, [mealId]);
+    if (existingRows.length === 0) {
       return res.status(404).json({ success: false, message: 'Meal not found' });
     }
+    const existing = existingRows[0];
 
-    db.prepare(`
+    await execute(`
       UPDATE MEAL SET
-        mess_id = ?, day_of_week = ?, meal_type = ?, menu_description = ?,
-        start_time = ?, end_time = ?
-      WHERE meal_id = ?
-    `).run(
-      mess_id ? Number(mess_id) : existing.mess_id,
-      day_of_week || existing.day_of_week,
-      meal_type || existing.meal_type,
-      menu_description || existing.menu_description,
-      start_time || existing.start_time,
-      end_time || existing.end_time,
+        MealName = ?, Description = ?, Cost = ?, MessID = ?
+      WHERE MealID = ?
+    `, [
+      body.MealName || body.meal_name || body.name || existing.MealName,
+      body.Description !== undefined ? (body.Description || body.description) : existing.Description,
+      body.Cost !== undefined ? Number(body.Cost) : (body.cost !== undefined ? Number(body.cost) : existing.Cost),
+      body.MessID || body.mess_id || existing.MessID,
       mealId
-    );
+    ]);
 
     res.json({ success: true, message: 'Meal updated successfully' });
   } catch (error) {
+    console.error('Error updating meal:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE meal
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    db.prepare(`DELETE FROM MEAL WHERE meal_id = ?`).run(req.params.id);
+    const mealId = req.params.id;
+    await execute(`DELETE FROM MEAL WHERE MealID = ?`, [mealId]);
     res.json({ success: true, message: 'Meal deleted successfully' });
   } catch (error) {
+    console.error('Error deleting meal:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

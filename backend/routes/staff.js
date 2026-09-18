@@ -1,190 +1,183 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
+const { query, execute } = require('../database');
 
-// GET all staff with phones, hostel, mess
-router.get('/', (req, res) => {
+// GET all staff with phones and mess info
+router.get('/', async (req, res) => {
   try {
-    const { role, hostel_id, status } = req.query;
-    let query = `
+    const { role, mess_id, search } = req.query;
+    let sql = `
       SELECT 
-        st.*,
-        h.name AS hostel_name,
-        m.mess_name,
-        GROUP_CONCAT(sp.phone_number, ', ') AS phone_numbers
+        st.StaffID AS staff_id,
+        st.StaffID,
+        st.StaffName AS name,
+        st.StaffName,
+        st.JoinDate AS join_date,
+        st.JoinDate,
+        st.Salary AS salary,
+        st.Salary,
+        st.Role AS role,
+        st.Role,
+        st.MessID AS mess_id,
+        st.MessID,
+        m.MessName AS mess_name,
+        GROUP_CONCAT(sp.PhoneNo, ', ') AS phone_numbers
       FROM STAFF st
-      LEFT JOIN HOSTEL h ON st.hostel_id = h.hostel_id
-      LEFT JOIN MESS m ON st.mess_id = m.mess_id
-      LEFT JOIN STAFF_PHONE sp ON st.staff_id = sp.staff_id
+      LEFT JOIN MESS m ON st.MessID = m.MessID
+      LEFT JOIN STAFF_PHONE sp ON st.StaffID = sp.StaffID
       WHERE 1=1
     `;
     const params = [];
 
-    if (role) {
-      query += ` AND st.role = ?`;
-      params.push(role);
+    if (role && role.trim()) {
+      sql += ` AND st.Role = ?`;
+      params.push(role.trim());
     }
-    if (hostel_id) {
-      query += ` AND st.hostel_id = ?`;
-      params.push(hostel_id);
+    if (mess_id && mess_id.trim()) {
+      sql += ` AND st.MessID = ?`;
+      params.push(mess_id.trim());
     }
-    if (status) {
-      query += ` AND st.status = ?`;
-      params.push(status);
+    if (search && search.trim()) {
+      sql += ` AND (st.StaffName LIKE ? OR st.Role LIKE ?)`;
+      const s = `%${search.trim()}%`;
+      params.push(s, s);
     }
 
-    query += ` GROUP BY st.staff_id ORDER BY st.staff_id ASC`;
+    sql += ` GROUP BY st.StaffID, st.StaffName, st.JoinDate, st.Salary, st.Role, st.MessID, m.MessName ORDER BY st.StaffID ASC`;
 
-    const rows = db.prepare(query).all(...params);
+    const rows = await query(sql, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    console.error('Error fetching staff list:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // GET single staff
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const staff = db.prepare(`
+    const staffId = req.params.id;
+    const rows = await query(`
       SELECT 
-        st.*,
-        h.name AS hostel_name,
-        m.mess_name
+        st.StaffID AS staff_id,
+        st.StaffID,
+        st.StaffName AS name,
+        st.StaffName,
+        st.JoinDate AS join_date,
+        st.JoinDate,
+        st.Salary AS salary,
+        st.Salary,
+        st.Role AS role,
+        st.Role,
+        st.MessID AS mess_id,
+        st.MessID,
+        m.MessName AS mess_name
       FROM STAFF st
-      LEFT JOIN HOSTEL h ON st.hostel_id = h.hostel_id
-      LEFT JOIN MESS m ON st.mess_id = m.mess_id
-      WHERE st.staff_id = ?
-    `).get(req.params.id);
+      LEFT JOIN MESS m ON st.MessID = m.MessID
+      WHERE st.StaffID = ?
+    `, [staffId]);
 
-    if (!staff) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Staff member not found' });
     }
 
-    const phones = db.prepare(`SELECT phone_number FROM STAFF_PHONE WHERE staff_id = ?`).all(req.params.id).map(p => p.phone_number);
+    const staff = rows[0];
+    const phoneRows = await query(`SELECT PhoneNo as phone_number FROM STAFF_PHONE WHERE StaffID = ?`, [staffId]);
+    const phones = phoneRows.map(p => p.phone_number);
+
     res.json({ success: true, data: { ...staff, phones } });
   } catch (error) {
+    console.error('Error fetching staff member by ID:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // POST create staff
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { name, role, salary, hostel_id, mess_id, join_date, status, phones } = req.body;
-    if (!name || !role || salary === undefined || !join_date) {
-      return res.status(400).json({ success: false, message: 'Name, role, salary, and join_date are required' });
+    const { StaffID, staff_id, StaffName, name, JoinDate, join_date, Salary, salary, Role, role, MessID, mess_id, phones } = req.body;
+    const finalId = StaffID || staff_id || ('ST' + (Math.floor(Math.random() * 90) + 10));
+    const finalName = StaffName || name;
+    if (!finalName) {
+      return res.status(400).json({ success: false, message: 'Staff name is required' });
     }
 
-    const insertTx = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO STAFF (name, role, salary, hostel_id, mess_id, join_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        name,
-        role,
-        Number(salary),
-        hostel_id ? Number(hostel_id) : null,
-        mess_id ? Number(mess_id) : null,
-        join_date,
-        status || 'Active'
-      );
+    await execute(`
+      INSERT INTO STAFF (StaffID, StaffName, JoinDate, Salary, Role, MessID)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      finalId,
+      finalName,
+      JoinDate || join_date || '01-JAN-22',
+      Number(Salary !== undefined ? Salary : (salary || 25000)),
+      Role || role || 'Support Staff',
+      MessID || mess_id || null
+    ]);
 
-      const staffId = result.lastInsertRowid;
-
-      if (phones && Array.isArray(phones)) {
-        const insPhone = db.prepare(`INSERT INTO STAFF_PHONE (staff_id, phone_number) VALUES (?, ?)`);
-        for (const p of phones) {
-          if (p && p.trim()) {
-            insPhone.run(staffId, p.trim());
-          }
+    if (phones && Array.isArray(phones)) {
+      for (const p of phones) {
+        if (p && String(p).trim()) {
+          await execute(`INSERT INTO STAFF_PHONE (StaffID, PhoneNo) VALUES (?, ?)`, [finalId, String(p).trim()]);
         }
       }
+    }
 
-      return staffId;
-    });
-
-    const staffId = insertTx();
-    res.status(201).json({ success: true, message: 'Staff created successfully', staffId });
+    res.status(201).json({ success: true, message: 'Staff member created successfully', staffId: finalId });
   } catch (error) {
+    console.error('Error creating staff member:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // PUT update staff
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const staffId = req.params.id;
-    const { name, role, salary, hostel_id, mess_id, join_date, status, phones } = req.body;
+    const body = req.body || {};
 
-    const existing = db.prepare(`SELECT * FROM STAFF WHERE staff_id = ?`).get(staffId);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Staff not found' });
+    const existingRows = await query(`SELECT * FROM STAFF WHERE StaffID = ?`, [staffId]);
+    if (existingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Staff member not found' });
     }
+    const existing = existingRows[0];
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
-        UPDATE STAFF SET
-          name = ?, role = ?, salary = ?, hostel_id = ?, mess_id = ?,
-          join_date = ?, status = ?
-        WHERE staff_id = ?
-      `).run(
-        name || existing.name,
-        role || existing.role,
-        salary !== undefined ? Number(salary) : existing.salary,
-        hostel_id !== undefined ? (hostel_id ? Number(hostel_id) : null) : existing.hostel_id,
-        mess_id !== undefined ? (mess_id ? Number(mess_id) : null) : existing.mess_id,
-        join_date || existing.join_date,
-        status || existing.status,
-        staffId
-      );
+    await execute(`
+      UPDATE STAFF SET
+        StaffName = ?, JoinDate = ?, Salary = ?, Role = ?, MessID = ?
+      WHERE StaffID = ?
+    `, [
+      body.StaffName || body.name || existing.StaffName,
+      body.JoinDate || body.join_date || existing.JoinDate,
+      body.Salary !== undefined ? Number(body.Salary) : (body.salary !== undefined ? Number(body.salary) : existing.Salary),
+      body.Role || body.role || existing.Role,
+      body.MessID || body.mess_id || existing.MessID,
+      staffId
+    ]);
 
-      if (phones && Array.isArray(phones)) {
-        db.prepare(`DELETE FROM STAFF_PHONE WHERE staff_id = ?`).run(staffId);
-        const insPhone = db.prepare(`INSERT INTO STAFF_PHONE (staff_id, phone_number) VALUES (?, ?)`);
-        for (const p of phones) {
-          if (p && p.trim()) {
-            insPhone.run(staffId, p.trim());
-          }
+    if (body.phones && Array.isArray(body.phones)) {
+      await execute(`DELETE FROM STAFF_PHONE WHERE StaffID = ?`, [staffId]);
+      for (const p of body.phones) {
+        if (p && String(p).trim()) {
+          await execute(`INSERT INTO STAFF_PHONE (StaffID, PhoneNo) VALUES (?, ?)`, [staffId, String(p).trim()]);
         }
       }
-    });
+    }
 
-    updateTx();
-    res.json({ success: true, message: 'Staff updated successfully' });
+    res.json({ success: true, message: 'Staff member updated successfully' });
   } catch (error) {
+    console.error('Error updating staff member:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // DELETE staff
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    db.prepare(`DELETE FROM STAFF WHERE staff_id = ?`).run(req.params.id);
-    res.json({ success: true, message: 'Staff deleted successfully' });
+    const staffId = req.params.id;
+    await execute(`DELETE FROM STAFF WHERE StaffID = ?`, [staffId]);
+    res.json({ success: true, message: 'Staff member deleted successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Staff phone routes
-router.post('/:id/phones', (req, res) => {
-  try {
-    const { phone_number } = req.body;
-    if (!phone_number) {
-      return res.status(400).json({ success: false, message: 'Phone number is required' });
-    }
-    db.prepare(`INSERT INTO STAFF_PHONE (staff_id, phone_number) VALUES (?, ?)`).run(req.params.id, phone_number.trim());
-    res.status(201).json({ success: true, message: 'Phone added' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-router.delete('/:id/phones/:phone', (req, res) => {
-  try {
-    db.prepare(`DELETE FROM STAFF_PHONE WHERE staff_id = ? AND phone_number = ?`).run(req.params.id, req.params.phone);
-    res.json({ success: true, message: 'Phone deleted' });
-  } catch (error) {
+    console.error('Error deleting staff member:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

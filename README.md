@@ -2,10 +2,10 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Website-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://hostel-management-system-database-system-ao5stctla-nkp5.vercel.app/)
 [![Database](https://img.shields.io/badge/Database-MySQL%20%7C%20Aiven%20Cloud-00758F?style=for-the-badge&logo=mysql&logoColor=white)](#-the-18-normalized-database-tables)
-[![Schema](https://img.shields.io/badge/Schema-18%20Relational%20Tables-7C3AED?style=for-the-badge)](#-the-18-normalized-database-tables)
-[![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-0A7EA4?style=for-the-badge&logo=react&logoColor=white)](https://react.dev)
-[![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-2E7D32?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-475569?style=for-the-badge)](LICENSE)
+[![Schema](https://img.shields.io/badge/Schema-18%20Relational%20Tables-FF6B00?style=for-the-badge)](#-the-18-normalized-database-tables)
+[![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev)
+[![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge)](LICENSE)
 
 A modern, high-performance **University Hostel Administration & Campus Logistics Management System** engineered with **React 18**, **Vite**, **Node.js**, **Express**, and a strictly normalized **18-table relational MySQL database** hosted on **Aiven Cloud**.
 

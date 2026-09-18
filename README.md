@@ -364,8 +364,8 @@ All endpoints return uniform JSON envelopes: `{ success: true, ... }` or `{ succ
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/nishanth418/HOSTEL-MANAGEMENT-SYSTEM---DATABASE-SYSTEM.git
-cd HOSTEL-MANAGEMENT-SYSTEM---DATABASE-SYSTEM
+git clone https://github.com/nishanth418/hostelmanagementsystem.git
+cd hostelmanagementsystem
 ```
 
 ---

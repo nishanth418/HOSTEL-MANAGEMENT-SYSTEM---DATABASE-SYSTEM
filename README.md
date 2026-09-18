@@ -1,13 +1,13 @@
 # 🏢 HostelHub — Enterprise Hostel Management System
 
 [![Live Demo](https://img.shields.io/badge/Live%20Website-Vercel-black?style=for-the-badge&logo=vercel)](https://hostel-management-system-database-system-ao5stctla-nkp5.vercel.app/)
-[![Database](https://img.shields.io/badge/Database-Aiven%20Cloud%20MySQL%20%2818%20Tables%29-00758F?style=for-the-badge&logo=mysql&logoColor=white)](#-the-18-normalized-database-tables)
+[![Database](https://img.shields.io/badge/Database-MySQL%20%7C%20Aiven%20Cloud%20%2818%20Tables%29-00758F?style=for-the-badge&logo=mysql&logoColor=white)](#-the-18-normalized-database-tables)
 [![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![Tables](https://img.shields.io/badge/Schema-18%20Relational%20Tables-orange?style=for-the-badge)](#-the-18-normalized-database-tables)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-A modern, high-performance **University Hostel Administration & Campus Logistics Management System** engineered with **React 18**, **Vite**, **Node.js**, **Express**, and a strictly normalized **18-table relational database** backed by **Aiven Cloud MySQL** in production with an autonomous local **SQLite 3** fallback.
+A modern, high-performance **University Hostel Administration & Campus Logistics Management System** engineered with **React 18**, **Vite**, **Node.js**, **Express**, and a strictly normalized **18-table relational MySQL database** hosted on **Aiven Cloud**.
 
 The platform equips university administrators, residence wardens, mess caterers, and accounting staff with an enterprise-grade operational hub for resident student allocation, multi-block room reservations, dining hall provisioning, staff payroll, vendor procurement, pre-compiled analytical intelligence reporting, and arbitrary SQL execution.
 
@@ -39,9 +39,9 @@ The platform equips university administrators, residence wardens, mess caterers,
 │                                SERVER TIER                                     │
 │   Node.js + Express REST API Server                                            │
 │   • Request Duration Logging & Standardized JSON Response Envelopes            │
-│   • Dual-Engine Data Access Layer (Universal Query & Execution Adapter)        │
+│   • Asynchronous Data Access Layer with Connection Pooling                     │
 │   • Parametric Prepared Statements & SQL Injection Safeguards                  │
-│   • Live Health & Relational Table Reflection Engine                           │
+│   • Live Health & MySQL Schema Reflection Engine                               │
 └──────────────────────────────────────┬─────────────────────────────────────────┘
                                        │ TLSv1.3 Encrypted Pool (`mysql2/promise`)
 ┌──────────────────────────────────────▼─────────────────────────────────────────┐
@@ -50,8 +50,6 @@ The platform equips university administrators, residence wardens, mess caterers,
 │   • Exactly 18 Normalized Relational Tables (InnoDB Engine, utf8mb4)           │
 │   • 18 Foreign Key Cascades & Referential Integrity Enforcements               │
 │   • ACID Compliant Transactions & Scalable Cloud Storage                       │
-│                                                                                │
-│   Autonomous Local Backup: SQLite 3 (`database/hostel.db`, better-sqlite3)     │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,8 +86,7 @@ The platform equips university administrators, residence wardens, mess caterers,
 
 ## 🌟 Core System Features & Capabilities
 
-- **Production Cloud Database (Aiven Cloud MySQL)**: Powered by managed MySQL 8.4.8 on Aiven over TLSv1.3 SSL with connection pooling via `mysql2/promise`.
-- **Autonomous Local SQLite Fallback**: Zero external dependencies required for offline development—the dual-engine database layer automatically switches to embedded SQLite (`database/hostel.db`) when cloud credentials are not present.
+- **Aiven Cloud MySQL Relational Engine**: Powered by managed MySQL 8.4.8 on Aiven Cloud over TLSv1.3 SSL with connection pooling via `mysql2/promise`.
 - **18 Normalized Relational Tables**: Full 3NF normalization covering student housing, room allocations, meal menus, catering inventory, staff payroll, and billing details.
 - **Strict Foreign Key Cascades**: `ENGINE=InnoDB` foreign keys with `ON DELETE CASCADE` on dependent tables (`STUDENT_PHONE`, `WARDEN_PHONE`, `MESS_CONTACT`, `STAFF_PHONE`, `SUPPLIER_PHONE`, `MEAL`, `PAYMENT_DETAIL`).
 - **Full Spectrum SQL Studio**: Directly run arbitrary `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, Subqueries, and multi-statement batch scripts inside atomic transactions with execution profiling.
@@ -235,7 +232,7 @@ All API endpoints return standard JSON responses: `{ success: true, data: [...] 
 ### System Endpoints
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/health` | Service health status, database engine (`MySQL` / `SQLite`), table count, and timestamp. |
+| `GET` | `/api/health` | Service health status, MySQL database connection, 18-table count, and timestamp. |
 | `GET` | `/api/dashboard/stats` | High-level KPI aggregations, occupancy metrics, and recent payments. |
 
 ### Reports & SQL Studio
@@ -279,18 +276,17 @@ All API endpoints return standard JSON responses: `{ success: true, data: [...] 
 hostelmanagementsystem/
 ├── database/
 │   ├── schema_mysql.sql        # Production Aiven MySQL DDL (18 tables, InnoDB, FKs)
-│   ├── schema.sql              # SQLite DDL schema (18 tables)
-│   ├── seed.sql                # Initial dataset seeds
-│   └── hostel.db               # Autonomous local SQLite relational database
+│   ├── schema.sql              # Relational schema definition (18 tables)
+│   └── seed.sql                # Dataset initialization seeds
 │
 ├── backend/
-│   ├── package.json            # Express, mysql2, better-sqlite3, cors, dotenv
+│   ├── package.json            # Express, mysql2, cors, dotenv
 │   ├── server.js               # Application entry point & health check
-│   ├── database.js             # Dual-engine unified query adapter (MySQL + SQLite)
+│   ├── database.js             # Unified database access adapter
 │   ├── db-mysql.js             # Aiven Cloud MySQL connection pool & SSL setup
-│   ├── migrate-to-mysql.js     # Automated migration pipeline
-│   ├── test-connection.js      # Aiven MySQL connection and SSL verification test
-│   ├── test-endpoints-and-crud.js # Full integration test suite (all endpoints + 12 CRUD)
+│   ├── migrate-to-mysql.js     # Data migration pipeline
+│   ├── test-connection.js      # Aiven MySQL connection & SSL verification test
+│   ├── test-endpoints-and-crud.js # Integration test suite (all endpoints + 12 CRUD)
 │   ├── verify-mysql.js         # Table, row count, and FK constraint verifier
 │   └── routes/                 # Async REST route controllers
 │       ├── dashboard.js        # KPI summaries & occupancy aggregations
@@ -346,7 +342,7 @@ cd hostelmanagementsystem
 ### 2. Configure Backend Environment
 Create `backend/.env` based on `.env.example`:
 ```bash
-# Optional: Provide Aiven MySQL connection details
+# Aiven Cloud MySQL Configuration
 DB_HOST=mysql-5c45aac-YOUR_HOST.aivencloud.com
 DB_PORT=26121
 DB_USER=avnadmin
@@ -354,7 +350,6 @@ DB_PASSWORD=YOUR_PASSWORD
 DB_NAME=defaultdb
 DB_SSL=true
 
-# If DB_HOST is omitted, the backend runs autonomously on local SQLite!
 PORT=5000
 NODE_ENV=development
 ```
